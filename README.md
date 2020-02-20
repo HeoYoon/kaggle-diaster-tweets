@@ -2,8 +2,8 @@
 
 https://www.kaggle.com/c/nlp-getting-started
 
-id - a unique identifier for each tweet
-text - the text of the tweet
-location - the location the tweet was sent from (may be blank)
-keyword - a particular keyword from the tweet (may be blank)
+id - a unique identifier for each tweet <br>
+text - the text of the tweet <br>
+location - the location the tweet was sent from (may be blank) <br>
+keyword - a particular keyword from the tweet (may be blank) <br>
 target - in train.csv only, this denotes whether a tweet is about a real disaster (1) or not (0)
