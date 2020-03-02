@@ -5,8 +5,92 @@ date: '2020 2 20 '
 output: html_document
 ---
 
-TEST
+### Library 
+
+```{r, warning=FALSE,message=FALSE}
+library(tidyverse)
+library(tidytext)
+library(Matrix)
+library(magrittr)
+library(xgboost)
+library(fastDummies)
+
+select <- dplyr::select
+```
+
+### Data Loading
+
+```{r}
+train <- read.csv("train.csv")
+test <- read.csv("test.csv")
+
+train$df <- "train"
+test$df <- "test"
+
+data <- dplyr::bind_rows(train,test)
+```
+
+### EDA
 
 ```{r}
 
+unnested_complete <- data %>%
+  mutate(text = as.character(text)) %>%
+  unnest_tokens(input = text, output = 'words', 
+                token = 'words', drop = F) %>%
+  select(-location) %>%
+  mutate(word_size = str_length(words), counts = 1) %>%
+  group_by(text) %>%
+  mutate(sentence_length = sum(counts)) %>%
+  ungroup() %>%
+  rowid_to_column()
+
+unnested_complete %>%
+  filter(df == "train") %>%
+  select(-words) %>%
+  distinct() %>%
+  group_by(target) %>%
+  summarise(word_size = mean(word_size),
+            sentence_length = mean(sentence_length))%>%
+  mutate_if(is.numeric, round, 2)
+  
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
