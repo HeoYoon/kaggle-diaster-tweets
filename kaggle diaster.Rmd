@@ -14,7 +14,8 @@ library(Matrix)
 library(magrittr)
 library(xgboost)
 library(fastDummies)
-
+library(caret)
+library(e1071)
 select <- dplyr::select
 ```
 
@@ -53,26 +54,152 @@ unnested_complete %>%
   summarise(word_size = mean(word_size),
             sentence_length = mean(sentence_length))%>%
   mutate_if(is.numeric, round, 2)
+
+unnested_complete %>%
+  filter(df == "train") %>%
+  group_by(words) %>%
+  summarise(target = mean(target), Count = sum(counts)) %>%
+  arrange(desc(Count)) %>%
+  filter(target > 0.9 | target < 0.3) %>%
+  head(20)
   
 ```
 
+### Word Classification
+
+```{r}
+
+word_map <- unnested_complete %>%
+  group_by(words) %>%
+  summarise(word_frequency = sum(counts)) %>%
+  mutate(number = grepl('[0-9]',words), unique_word = (word_frequency == 1)) %>%
+  ungroup() %>%
+  rename(word = words) %>%
+  left_join(tidytext::sentiments,by = "word") %>%
+  left_join(tidytext::parts_of_speech, by = "word") %>%
+  mutate(non_word = case_when((is.na(sentiment) & is.na(pos))~TRUE,TRUE~FALSE))
+
+full_complete <- unnested_complete %>%
+  rename(word = words) %>%
+  left_join(word_map, by = "word") %>%
+  mutate(keyword = case_when(
+    keyword =="" ~ "Empty",
+    T ~ "Available"
+  ))
+
+full_complete %>%
+  head()
+
+full_complete %>%
+    filter(df == "train") %>%
+    group_by(id) %>%
+    summarize(target = first(target),word_frequency = mean(word_frequency),unique_words = sum(unique_word),non_words = sum(non_word),word_size = mean(word_size), sentence_length = first(sentence_length)) %>%
+    mutate_if(is.numeric,round,2) %>%
+    group_by(target) %>%
+    summarize(word_frequency = mean(word_frequency),unique_words = mean(unique_words),non_words = mean(non_words),word_size = mean(word_size), sentence_length = mean(sentence_length))
+
+  
+```
+
+```{r}
+
+data %>%
+  mutate(location = case_when(
+    location == "" ~ 0,
+    T ~ 1
+  ),Count = 1) %>%
+  group_by(location) %>%
+  summarise(target = mean(target, na.rm = T), Count = sum(Count)) %>%
+  ungroup() %>%
+  arrange(desc(target)) 
 
 
+data %>%
+  mutate(keyword = case_when(
+    keyword == "" ~ 0,
+    T ~ 1
+  ),Count = 1) %>%
+  group_by(keyword) %>%
+  summarise(target = mean(target, na.rm = T), Count = sum(Count)) %>%
+  ungroup() %>%
+  arrange(desc(target)) 
+
+```
+
+### Modeling
+
+```{r}
+text_map <- full_complete %>%
+  select(-word) %>%
+  spread(key = keyword, value = counts, fill = 0, drop = T) %>%
+  mutate(counts = 1) %>%
+  spread(key = pos, value = counts, fill = 0, drop = T) %>%
+  select(-'<NA>') %>%
+  mutate(counts = 1) %>%
+  spread(key = sentiment, value = counts, fill = 0, drop = T) %>%
+  select(-'<NA>') %>%
+  mutate(counts = 1) %>%
+  spread(key = unique_word, value = counts, fill =0, drop = T) %>%
+  rename(unique_word = 'TRUE') %>%
+  mutate(counts = 1) %>%
+  spread(key = non_word, value = counts, fill =0, drop = T) %>%
+  rename(non_word = 'TRUE') %>%
+  mutate(counts = 1) %>%
+  spread(key = number, value = counts, fill =0, drop = T) %>%
+  rename(number = 'TRUE') %>%
+  select(-'FALSE', -rowid) %>%
+  group_by(df, id, target, text) %>%
+  summarise_all(.funs = mean, na.rm = T)
 
 
+```
 
+```{r}
+train_map <- text_map %>%
+  ungroup() %>%
+  filter(!is.na(target))
 
+model_train <- train_map %>%
+  sample_frac(size = 0.7)
+  
+model_test <- train_map %>%
+  filter(!id %in% model_train$id)
+  
+xgbcv <- xgb.cv(params = list(max.depth = 6, eta = 0.3, nthread = 2, booster = "gbtree", objective = "binary:logistic"), 
+                data = as.matrix(model_train %>% select(-target, -text, -id, -df)), label = model_train$target, nrounds = 1000,
+                nfold = 5, stratified = T, print_every_n = 10, early_stopping_rounds = 200, maximize = F)
+XGBFULL <- xgboost(data = as.matrix(model_train %>% select(-target, -text, -id, -df)), label = model_train$target, max.depth = 6, eta = 0.3,
+                   nthread = 2, nrounds = 45, nfold = 5, booster = "gbtree", objective = "binary:logistic")
 
+predictionXGBFULL <- predict(XGBFULL, as.matrix(model_test %>% select(-target, -text, -id, -df)))
+predictionXGBFULL <- as.numeric(predictionXGBFULL > 0.5)
 
+confusionMatrix(as.factor(predictionXGBFULL), as.factor(model_test$target))
 
+```
 
+### Submission
 
+```{r}
+test_sub <- text_map %>%
+  ungroup() %>%
+  filter(id %in% test$id) %>%
+  select(-target, -text, -id, -df)
 
+predictionSUB <- predict(XGBFULL, as.matrix(test_sub))
+predictionSUB <- as.numeric(predictionSUB > 0.5)
 
+pre_val <- text_map %>%
+  ungroup() %>%
+  filter(id %in% test$id) %>%
+  select(-target) %>%
+  cbind(target = predictionSUB) %>%
+  select(id,target) %>%
+  distinct() 
 
-
-
-
+test %>%
+  
+```
 
 
 
